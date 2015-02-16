@@ -1,0 +1,129 @@
+---
+title: "Human Activity Recognition"
+author: "Tomáš Folwarczný"
+date: "Monday, February 16, 2015"
+output: html_document
+---
+
+## Summary  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity. In this project we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of the project is to predict the manner in which people did the excercise.  
+
+## Data  
+
+```{r}
+setwd("~/R/Coursera/Project8")
+library(caret)
+library(randomForest)
+
+## download data
+
+# training data
+trainURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+if (!file.exists("pml-training.csv")){
+    download.file(trainURL, destfile = "pml-training.csv")
+}
+pml_train <- read.csv("pml-training.csv")
+
+# test data
+testURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if (!file.exists("pml-testing.csv")){
+    download.file(testURL, destfile = "pml-testing.csv")
+}
+pml_test <- read.csv("pml-testing.csv")
+
+```
+  
+We split data into two sets. We build model on training set and evaluate on test set.  
+
+```{r}
+set.seed(1173)
+
+# splitting training data
+inTrain <- createDataPartition(y=pml_train$classe, p=0.6, list=FALSE)
+training <- pml_train[inTrain,]
+testing <- pml_train[-inTrain,]
+
+```
+
+  
+We remove irelevant columns (not related to the classe outcome), predictors with near zero variance and predictors with more then 95% of NA values.  
+
+
+```{r}
+# remove irelevant columns
+names(training[,1:7])
+training1 <- training[, -c(1:7)]
+testing1 <- testing[, -c(1:7)]
+pml_test <- pml_test[, -c(1:7)]
+
+
+# remove near zero variance predictors
+nzv <- nearZeroVar(training1)
+training1 <- training1[, -nzv]
+testing1 <- testing1[, -nzv]
+pml_test <- pml_test[, -nzv]
+
+# remove predictors with more then 95% of NA values
+tr <- 0.95 * length(training1[,1])
+remNA <- apply(training1, 2, function(x) length(x[is.na(x)])) < tr
+training1 <- training1[, remNA]
+testing1 <- testing1[, remNA]
+pml_test <- pml_test[, remNA]
+
+# check if there are any NA values still
+sum(!complete.cases(training1))
+sum(!complete.cases(testing1))
+sum(!complete.cases(pml_test))
+
+```
+
+## Preprocessing  
+
+The goal is to standardize data and reduce number of predictors. We use BoxCox method to standardize data. Predictors are correlated so we use principal components analysis to reduce the number of predictors.  
+
+```{r}
+# test predictors correlation
+M <- abs(cor(training1[, -53]))
+diag(M) <- 0
+which(M > 0.8, arr.ind=TRUE)
+
+# preprocessing
+preProc1 <- preProcess(training1[, -53], method="BoxCox")
+trainPC <- predict(preProc1, training1[, -53])
+preProc2 <- preProcess(trainPC, method="pca")
+trainPC <- predict(preProc2, trainPC)
+```
+
+## Model  
+
+We use random forest method to create model.  
+
+```{r}
+modelFit <- randomForest(training1$classe ~ ., data=trainPC)
+
+```
+
+## Cross validation  
+
+We use test data set to validate the model.  
+
+```{r}
+# validation
+testPC <- predict(preProc1, testing1[, -53])
+testPC <- predict(preProc2, testPC)
+
+confm <- confusionMatrix(testing1$classe, predict(modelFit, testPC))
+confm$overall["Accuracy"]
+
+```
+
+## Prediction  
+
+
+```{r}
+pml_testPC <- predict(preProc1, pml_test[, -53])
+pml_testPC <- predict(preProc2, pml_testPC)
+
+result <- predict(modelFit, pml_testPC)
+result
+```
